@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+venv/
+.env
+# Excluir Excel para privacidad de datos
+*.xlsx
+# Permitir pero ignorar contenido (opcional, por ahora ignoramos todo excel)
+.DS_Store
