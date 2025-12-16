@@ -83,18 +83,31 @@ class FiltradorMultiArchivosGUI:
             self.save_button.config(state="normal")
 
     def get_base_path(self):
-        """Retorna la ruta base correcta tanto para script como para ejecutable"""
+        """Retorna la ruta base del ejecutable/script"""
         if getattr(sys, "frozen", False):
-            # Si es un ejecutable (PyInstaller)
-            # En macOS .app, sys.executable está dentro del bundle
             return os.path.dirname(sys.executable)
         else:
-            # Si es script normal
             return os.path.dirname(os.path.abspath(__file__))
+
+    def get_data_path(self):
+        """Retorna la ruta segura para datos (Documents en Mac, local en otros)"""
+        if sys.platform == "darwin" and getattr(sys, "frozen", False):
+            # En Mac App, usar carpeta Documentos
+            docs = os.path.join(os.path.expanduser("~"), "Documents")
+            data_dir = os.path.join(docs, "Vidasalud_Data")
+            if not os.path.exists(data_dir):
+                try:
+                    os.makedirs(data_dir)
+                except:
+                    pass
+            return data_dir
+        else:
+            # En Windows/Linux o script, usar la carpeta del programa
+            return self.get_base_path()
 
     def cargar_archivos_disponibles(self):
         """Carga todos los archivos Excel de la carpeta archivos_excel"""
-        base_path = self.get_base_path()
+        base_path = self.get_data_path()
         carpeta_archivos = os.path.join(base_path, "archivos_excel")
 
         if not os.path.exists(carpeta_archivos):
@@ -664,7 +677,7 @@ class FiltradorMultiArchivosGUI:
         archivo_path = filedialog.askopenfilename(
             title="Seleccionar archivo Excel",
             filetypes=[("Archivos Excel", "*.xlsx"), ("Todos los archivos", "*.*")],
-            initialdir=os.path.join(self.get_base_path(), "archivos_excel"),
+            initialdir=os.path.join(self.get_data_path(), "archivos_excel"),
         )
 
         if not archivo_path:
