@@ -2,3 +2,5 @@ pandas
 openpyxl
 ttkthemes
 pyinstaller
+customtkinter
+packaging

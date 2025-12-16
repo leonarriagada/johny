@@ -1,68 +1,56 @@
 import pandas as pd
-import tkinter as tk
+import tkinter as tk  # Keep for file dialogs and some constants if needed
 from tkinter import ttk, messagebox, filedialog
+import customtkinter as ctk  # NEW: Modern UI library
 import os
 from datetime import datetime
 import glob
 import sys
+import threading  # For non-blocking operations if needed
 
-# Configurar el tema del sistema
+# Configuration for High DPI (Windows) - Optional but good practice
 try:
-    from ttkthemes import ThemedStyle
+    from ctypes import windll
+    windll.shcore.SetProcessDpiAwareness(1)
+except:
+    pass
 
-    USE_CUSTOM_THEME = True
-except ImportError:
-    USE_CUSTOM_THEME = False
-
+# --- THEME CONFIGURATION ---
+# "System" uses the OS mode (Dark/Light)
+# "DarkBlue", "Blue", "Green" are built-in themes. We can use a custom color if needed for "Million Dollar" look.
+ctk.set_appearance_mode("System")  
+ctk.set_default_color_theme("blue")  # We will override specific colors for a premium look
 
 class FiltradorMultiArchivosGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title(
-            "🦷 VidaSalud Dental - Filtrador Multi-Archivos | © Jonathan Fuentes Toledo"
-        )
-        self.root.geometry("1000x750")
-
-        # Configurar tema y estilo personalizado
-        if USE_CUSTOM_THEME:
-            self.style = ThemedStyle(self.root)
-            self.style.set_theme("arc")
+        self.root.title("🦷 Vidasalud Dental - Filtrador Multi-Archivos | © Jonathan Fuentes Toledo")
+        
+        # Determine platform for maximized state
+        if sys.platform == "win32":
+            self.root.state("zoomed")
+        elif sys.platform == "linux":
+            self.root.attributes("-zoomed", True)
         else:
-            self.style = ttk.Style()
+            # macOS: Start with a large size or fullscreen, user can maximize
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            self.root.geometry(f"{int(screen_width*0.9)}x{int(screen_height*0.9)}+{int(screen_width*0.05)}+{int(screen_height*0.05)}")
 
-        # Configurar estilos personalizados
-        self.style.configure(
-            "Custom.TButton", padding=10, relief="flat", font=("Arial", 10, "bold")
-        )
-        self.style.map(
-            "Custom.TButton",
-            background=[("active", "#5BA0B4"), ("!active", "#4A90A4")],
-            foreground=[("active", "#FFFFFF"), ("!active", "#FFFFFF")],
-        )
-
-        # Colores corporativos de Vidasalud Dental
+        # --- PREMIUM PALETTE (Subtle adjustments) ---
         self.colors = {
-            "primary": "#4A90A4",  # Verde agua principal
-            "secondary": "#7FB3C7",  # Verde agua claro
-            "primary_dark": "#2E5A6B",  # Verde agua oscuro para botones principales
-            "accent": "#8B7355",  # Café claro
-            "light": "#F5F5F5",  # Blanco grisáceo
-            "white": "#FFFFFF",  # Blanco puro
-            "dark": "#1A1A1A",  # Negro suave para texto principal
-            "dark_gray": "#2C2C2C",  # Gris oscuro para texto secundario
-            "success": "#27AE60",  # Verde para éxito
-            "warning": "#F39C12",  # Naranja para advertencias
-            "error": "#E74C3C",  # Rojo para errores
-            "gradient_start": "#E8F4F8",  # Inicio del gradiente
-            "gradient_end": "#F0F8FA",  # Fin del gradiente
-            "border": "#D1E7DD",  # Color de bordes suaves
-            "hover": "#5BA0B4",  # Color hover para botones
-            "shadow": "#E0E0E0",  # Color de sombras
-            "button_gradient_start": "#4A90A4",  # Gradiente para botones
-            "button_gradient_end": "#2E5A6B",  # Gradiente para botones
+            "bg_color": ("#F9F9FA", "#1A1A1A"),  # Light/Dark background
+            "card_bg": ("#FFFFFF", "#2B2B2B"),   # Card background
+            "primary": "#3B8ED0",                # Modern Blue
+            "primary_hover": "#36719F",
+            "text_main": ("#1A1A1A", "#FFFFFF"),
+            "text_sec": ("#666666", "#AAAAAA"),
+            "success": "#2CC985",
+            "danger": "#E74C3C"
         }
 
-        self.root.configure(bg=self.colors["light"])
+        # Root configuration
+        self.root.configure(bg=self.colors["bg_color"][0] if ctk.get_appearance_mode()=="Light" else self.colors["bg_color"][1])
 
         # Variables
         self.archivos_excel = []
@@ -70,1165 +58,427 @@ class FiltradorMultiArchivosGUI:
         self.df = None
         self.prestaciones = []
         self.resultado_filtrado = None
-        self.columnas_seleccionadas = []  # Columnas que se mostrarán en los resultados
+        self.columnas_seleccionadas = []
 
-        # Cargar archivos disponibles
+        # Layout Setup
+        self.setup_ui()
+        
+        # Load files initially
         self.cargar_archivos_disponibles()
 
-        # Crear interfaz
-        self.crear_interfaz()
-
-        # Habilitar botón de guardar desde el inicio
-        if hasattr(self, "save_button"):
-            self.save_button.config(state="normal")
-
     def get_base_path(self):
-        """Retorna la ruta base del ejecutable/script"""
+        """Returns executable/script directory"""
         if getattr(sys, "frozen", False):
             return os.path.dirname(sys.executable)
         else:
             return os.path.dirname(os.path.abspath(__file__))
 
     def get_data_path(self):
-        """Retorna la ruta segura para datos (Documents en Mac, local en otros)"""
+        """Returns safe data directory (Documents on Mac)"""
         if sys.platform == "darwin" and getattr(sys, "frozen", False):
-            # En Mac App, usar carpeta Documentos
             docs = os.path.join(os.path.expanduser("~"), "Documents")
             data_dir = os.path.join(docs, "Vidasalud_Data")
             if not os.path.exists(data_dir):
-                try:
-                    os.makedirs(data_dir)
-                except:
-                    pass
+                try: os.makedirs(data_dir)
+                except: pass
             return data_dir
         else:
-            # En Windows/Linux o script, usar la carpeta del programa
             return self.get_base_path()
 
+    def setup_ui(self):
+        """Construye la interfaz moderna"""
+        # Configuración principal de la grilla
+        self.root.grid_columnconfigure(0, weight=1)
+        self.root.grid_rowconfigure(1, weight=1)
+
+        # --- 1. HEADER (Encabezado) ---
+        self.header = ctk.CTkFrame(self.root, corner_radius=0, fg_color=self.colors["card_bg"])
+        self.header.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
+        
+        # Título principal
+        self.title_label = ctk.CTkLabel(
+            self.header, 
+            text="🦷 VidaSalud Dental", 
+            font=ctk.CTkFont(family="Arial", size=24, weight="bold"),
+            text_color=self.colors["primary"]
+        )
+        self.title_label.pack(side="left", padx=30, pady=20)
+
+        # Subtítulo y Créditos
+        credits_frame = ctk.CTkFrame(self.header, fg_color="transparent")
+        credits_frame.pack(side="left", padx=10)
+        
+        self.subtitle_label = ctk.CTkLabel(
+            credits_frame, 
+            text="Sistema de Filtrado Profesional", 
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=self.colors["text_sec"]
+        )
+        self.subtitle_label.pack(anchor="w")
+        
+        self.copyright_label = ctk.CTkLabel(
+            credits_frame, 
+            text="© Jonathan Fuentes Toledo", 
+            font=ctk.CTkFont(size=11),
+            text_color=self.colors["text_sec"]
+        )
+        self.copyright_label.pack(anchor="w")
+
+        # Switch de Tema
+        self.theme_switch = ctk.CTkSwitch(self.header, text="Modo Oscuro", command=self.toggle_theme)
+        self.theme_switch.pack(side="right", padx=30)
+    
+        # --- 2. CONTENIDO PRINCIPAL ---
+        self.content_frame = ctk.CTkFrame(self.root, corner_radius=0, fg_color="transparent")
+        self.content_frame.grid(row=1, column=0, sticky="nsew", padx=30, pady=30)
+        self.content_frame.grid_columnconfigure(1, weight=1)
+        self.content_frame.grid_rowconfigure(0, weight=1)
+
+        # --- BARRA LATERAL (Controles) ---
+        self.sidebar = ctk.CTkFrame(self.content_frame, corner_radius=15, width=320, fg_color=self.colors["card_bg"])
+        self.sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, 20), pady=0)
+        self.sidebar.grid_propagate(False)
+
+        # Sección: Archivo
+        self.lbl_file = ctk.CTkLabel(self.sidebar, text="FUENTE DE DATOS", font=ctk.CTkFont(size=12, weight="bold"), text_color=self.colors["text_sec"])
+        self.lbl_file.pack(anchor="w", padx=20, pady=(25, 10))
+
+        self.btn_load = ctk.CTkButton(
+            self.sidebar, 
+            text="📂 Cargar Archivo Excel", 
+            command=self.cargar_archivo,
+            height=45,
+            corner_radius=8,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=self.colors["primary"],
+            hover_color=self.colors["primary_hover"]
+        )
+        self.btn_load.pack(fill="x", padx=20, pady=5)
+
+        self.lbl_current_file = ctk.CTkLabel(
+            self.sidebar, 
+            text="Ningún archivo seleccionado", 
+            font=ctk.CTkFont(size=12), 
+            text_color=self.colors["text_sec"], 
+            wraplength=280,
+            justify="left"
+        )
+        self.lbl_current_file.pack(anchor="w", padx=20, pady=10)
+
+        # Separador
+        ctk.CTkFrame(self.sidebar, height=2, fg_color=self.colors["bg_color"][0] if ctk.get_appearance_mode()=="Light" else "gray30").pack(fill="x", padx=20, pady=15)
+
+        # Sección: Filtros
+        self.lbl_filter = ctk.CTkLabel(self.sidebar, text="FILTRADO INTELIGENTE", font=ctk.CTkFont(size=12, weight="bold"), text_color=self.colors["text_sec"])
+        self.lbl_filter.pack(anchor="w", padx=20, pady=(5, 10))
+
+        self.txt_search = ctk.CTkEntry(self.sidebar, placeholder_text="🔍 Buscar prestación...", height=40)
+        self.txt_search.pack(fill="x", padx=20, pady=5)
+        self.txt_search.bind("<KeyRelease>", self.filtrar_prestaciones_evento)
+
+        self.combo_prestacion = ctk.CTkComboBox(self.sidebar, values=[], height=40)
+        self.combo_prestacion.pack(fill="x", padx=20, pady=10)
+
+        self.btn_apply_filter = ctk.CTkButton(
+            self.sidebar, 
+            text="🔍 Aplicar Filtro", 
+            command=self.buscar_prestacion,
+            height=45, 
+            font=ctk.CTkFont(weight="bold"),
+            fg_color=self.colors["success"],
+            hover_color="#26AF73"
+        )
+        self.btn_apply_filter.pack(fill="x", padx=20, pady=10)
+
+        self.btn_clear = ctk.CTkButton(
+            self.sidebar, 
+            text="🧹 Limpiar Filtros", 
+            command=self.limpiar_resultados,
+            height=35,
+            fg_color="transparent",
+            border_width=1,
+            text_color=("gray20", "gray80")
+        )
+        self.btn_clear.pack(fill="x", padx=20, pady=5)
+
+        # Footer Actions
+        self.btn_save = ctk.CTkButton(
+            self.sidebar, 
+            text="💾 GUARDAR RESULTADOS", 
+            command=self.guardar_resultado,
+            height=50,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            state="disabled"
+        )
+        self.btn_save.pack(side="bottom", fill="x", padx=20, pady=30)
+
+
+        # --- ÁREA PRINCIPAL ---
+        self.main_area_container = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        self.main_area_container.grid(row=0, column=1, sticky="nsew")
+        self.main_area_container.grid_rowconfigure(2, weight=1) # Treeview expande
+        self.main_area_container.grid_columnconfigure(0, weight=1)
+
+        # 1. Panel de Estadísticas (Nuevo, restaurado y mejorado)
+        self.stats_frame = ctk.CTkFrame(self.main_area_container, corner_radius=15, height=100, fg_color=self.colors["card_bg"])
+        self.stats_frame.grid(row=0, column=0, sticky="ew", pady=(0, 20))
+        self.stats_frame.pack_propagate(False) # Mantener altura fija
+
+        # Widget de estadística auxiliar
+        def create_stat_widget(parent, title, value_var, color):
+            f = ctk.CTkFrame(parent, fg_color="transparent")
+            f.pack(side="left", fill="y", padx=40, pady=15)
+            ctk.CTkLabel(f, text=title, font=ctk.CTkFont(size=12, weight="bold"), text_color="gray").pack(anchor="w")
+            ctk.CTkLabel(f, textvariable=value_var, font=ctk.CTkFont(size=24, weight="bold"), text_color=color).pack(anchor="w")
+            return f
+
+        self.stat_total_var = tk.StringVar(value="0")
+        self.stat_filtro_var = tk.StringVar(value="0")
+        self.stat_perc_var = tk.StringVar(value="0%")
+
+        create_stat_widget(self.stats_frame, "REGISTROS TOTALES", self.stat_total_var, self.colors["text_main"][0])
+        # Separador vertical
+        ctk.CTkFrame(self.stats_frame, width=2, height=40, fg_color="gray80").pack(side="left", pady=20)
+        create_stat_widget(self.stats_frame, "REGISTROS FILTRADOS", self.stat_filtro_var, self.colors["primary"])
+        # Separador vertical
+        ctk.CTkFrame(self.stats_frame, width=2, height=40, fg_color="gray80").pack(side="left", pady=20)
+        create_stat_widget(self.stats_frame, "PORCENTAJE", self.stat_perc_var, self.colors["success"])
+
+
+        # 2. Barra Superior de Tabla
+        self.table_header = ctk.CTkFrame(self.main_area_container, height=50, fg_color="transparent")
+        self.table_header.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        
+        self.lbl_results_title = ctk.CTkLabel(self.table_header, text="Vista de Datos", font=ctk.CTkFont(size=18, weight="bold"))
+        self.lbl_results_title.pack(side="left")
+
+        self.btn_columns = ctk.CTkButton(
+            self.table_header, 
+            text="⚙️ Columnas", 
+            width=120, 
+            command=self.configurar_columnas,
+            fg_color="transparent",
+            border_width=1,
+            text_color=("gray10", "gray90")
+        )
+        self.btn_columns.pack(side="right")
+
+        # 3. Tabla (Treeview)
+        self.tree_container = ctk.CTkFrame(self.main_area_container, corner_radius=15, fg_color=self.colors["card_bg"])
+        self.tree_container.grid(row=2, column=0, sticky="nsew")
+        
+        # Frame interno para padding
+        self.tree_frame = ctk.CTkFrame(self.tree_container, fg_color="transparent")
+        self.tree_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("Treeview", 
+            background="white",
+            foreground="#333333",
+            rowheight=35,
+            fieldbackground="white",
+            bordercolor="#E5E5E5",
+            borderwidth=0,
+            font=("Segoe UI", 10)
+        )
+        style.configure("Treeview.Heading", 
+            background="#F1F3F4", 
+            foreground="#555555", 
+            relief="flat", 
+            font=("Segoe UI", 10, "bold")
+        )
+        style.map("Treeview", background=[('selected', self.colors['primary'])], foreground=[('selected', 'white')])
+
+        self.tree_scroll_y = ctk.CTkScrollbar(self.tree_frame)
+        self.tree_scroll_y.pack(side="right", fill="y")
+        
+        self.tree_scroll_x = ctk.CTkScrollbar(self.tree_frame, orientation="horizontal")
+        self.tree_scroll_x.pack(side="bottom", fill="x")
+
+        self.tree = ttk.Treeview(
+            self.tree_frame, 
+            show="headings", 
+            yscrollcommand=self.tree_scroll_y.set, 
+            xscrollcommand=self.tree_scroll_x.set
+        )
+        self.tree.pack(fill="both", expand=True)
+        
+        self.tree_scroll_y.configure(command=self.tree.yview)
+        self.tree_scroll_x.configure(command=self.tree.xview)
+
+
+    # --- LOGIC METHODS (Adatped from original) ---
+
+    def toggle_theme(self):
+        if ctk.get_appearance_mode() == "Dark":
+            ctk.set_appearance_mode("Light")
+        else:
+            ctk.set_appearance_mode("Dark")
+
     def cargar_archivos_disponibles(self):
-        """Carga todos los archivos Excel de la carpeta archivos_excel"""
         base_path = self.get_data_path()
         carpeta_archivos = os.path.join(base_path, "archivos_excel")
-
         if not os.path.exists(carpeta_archivos):
-            try:
-                os.makedirs(carpeta_archivos)
-                messagebox.showinfo(
-                    "📁 Carpeta Creada",
-                    f"Se creó la carpeta '{carpeta_archivos}'\nColoca aquí todos tus archivos Excel de datos.",
-                )
-            except OSError as e:
-                messagebox.showerror(
-                    "❌ Error", f"No se pudo crear la carpeta:\n{str(e)}"
-                )
-            return
-
-        # Buscar todos los archivos Excel
+            try: os.makedirs(carpeta_archivos)
+            except: pass
+            
         patron = os.path.join(carpeta_archivos, "*.xlsx")
         self.archivos_excel = glob.glob(patron)
-
-        if not self.archivos_excel:
-            messagebox.showwarning(
-                "⚠️ Sin Archivos",
-                f"No se encontraron archivos Excel en la carpeta '{carpeta_archivos}'\nColoca aquí tus archivos .xlsx",
-            )
-
-    def _interpolate_color(self, color1, color2, factor):
-        """Interpola entre dos colores hexadecimales."""
-
-        def hex_to_rgb(hex_color):
-            hex_color = hex_color.lstrip("#")
-            return tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
-
-        def rgb_to_hex(rgb):
-            return "#{:02x}{:02x}{:02x}".format(*rgb)
-
-        c1 = hex_to_rgb(color1)
-        c2 = hex_to_rgb(color2)
-
-        rgb = tuple(int(c1[i] + (c2[i] - c1[i]) * factor) for i in range(3))
-        return rgb_to_hex(rgb)
-
-    def crear_interfaz(self):
-        """Crea la interfaz gráfica con selector de archivos"""
-        # Configurar el estilo de la ventana
-        self.root.configure(bg=self.colors["gradient_start"])
-
-        # Header principal con gradiente y sombra
-        header_frame = tk.Frame(self.root, height=120)
-        header_frame.pack(fill="x", padx=0, pady=0)
-        header_frame.pack_propagate(False)
-
-        # Canvas para crear el gradiente en el header
-        header_canvas = tk.Canvas(header_frame, height=120, highlightthickness=0)
-        header_canvas.pack(fill="x", expand=True)
-
-        # Crear gradiente
-        header_canvas.create_rectangle(
-            0, 0, 2000, 120, fill=self.colors["primary_dark"], outline=""
-        )
-        for i in range(60):
-            color = self._interpolate_color(
-                self.colors["primary_dark"], self.colors["primary"], i / 60
-            )
-            header_canvas.create_line(0, i * 2, 2000, i * 2, fill=color)
-
-        # Título principal con efecto de sombra
-        title_shadow = tk.Label(
-            header_frame,
-            text="🦷 Vidasalud Dental",
-            font=("Arial", 24, "bold"),
-            fg=self.colors["shadow"],
-            bg=self.colors["primary_dark"],
-        )
-        title_shadow.place(relx=0.5, rely=0.3, anchor="center", x=2, y=2)
-
-        title_label = tk.Label(
-            header_frame,
-            text="🦷 Vidasalud Dental",
-            font=("Arial", 24, "bold"),
-            fg=self.colors["white"],
-            bg=self.colors["primary_dark"],
-        )
-        title_label.place(relx=0.5, rely=0.3, anchor="center")
-
-        # Subtítulo con efecto de transparencia
-        subtitle_label = tk.Label(
-            header_frame,
-            text="Sistema de Filtrado Multi-Archivos",
-            font=("Arial", 12),
-            fg=self.colors["light"],
-            bg=self.colors["primary_dark"],
-        )
-        subtitle_label.place(relx=0.5, rely=0.6, anchor="center")
-
-        # Marca registrada sutil en el header
-        copyright_header = tk.Label(
-            header_frame,
-            text="© Jonathan Fuentes Toledo",
-            font=("Arial", 8),
-            bg=self.colors["primary"],
-            fg=self.colors["light"],
-        )
-        copyright_header.pack(pady=2)
-
-        # Frame principal con fondo degradado y sombra
-        main_frame = tk.Frame(self.root, bg=self.colors["gradient_start"])
-        main_frame.pack(padx=30, pady=20, fill="both", expand=True)
-
-        # Estilo personalizado para los frames
-        def create_rounded_frame(parent, title):
-            frame = tk.Frame(parent, bg=self.colors["white"])
-            frame.pack(fill="x", pady=(0, 15), padx=2)
-
-            # Efecto de sombra
-            shadow_frame = tk.Frame(parent, bg=self.colors["shadow"])
-            shadow_frame.place(
-                in_=frame, relx=0.002, rely=0.002, relwidth=1, relheight=1
-            )
-            frame.lift()
-
-            # Título del frame
-            title_label = tk.Label(
-                frame,
-                text=title,
-                font=("Arial", 13, "bold"),
-                bg=self.colors["primary"],
-                fg=self.colors["white"],
-                padx=15,
-                pady=8,
-            )
-            title_label.pack(anchor="w", pady=(0, 10))
-
-            # Contenedor interno
-            inner_frame = tk.Frame(frame, bg=self.colors["white"], padx=20, pady=15)
-            inner_frame.pack(fill="x", expand=True)
-
-            return inner_frame
-
-        # Frame para selección de archivo con nuevo estilo
-        file_frame = create_rounded_frame(main_frame, "📁 Selección de Archivo Excel")
-
-        # Botón para cargar archivo con estilo moderno y efecto hover
-        self.load_button = tk.Button(
-            file_frame,
-            text="📂 Cargar Archivo Excel",
-            command=self.cargar_archivo,
-            font=("Arial", 12, "bold"),
-            bg=self.colors["primary_dark"],
-            fg=self.colors["white"],
-            relief="flat",
-            bd=0,
-            padx=25,
-            pady=12,
-            cursor="hand2",
-        )
-        self.load_button.pack(side="left", padx=(0, 15))
-
-        # Configurar efectos hover para el botón de cargar
-        def on_enter_load(e):
-            self.load_button.config(bg=self.colors["hover"])
-
-        def on_leave_load(e):
-            self.load_button.config(bg=self.colors["primary_dark"])
-
-        self.load_button.bind("<Enter>", on_enter_load)
-        self.load_button.bind("<Leave>", on_leave_load)
-
-        # Botón para refrescar lista con estilo moderno y efecto hover
-        self.refresh_button = tk.Button(
-            file_frame,
-            text="🔄 Refrescar Lista",
-            command=self.refrescar_archivos,
-            font=("Arial", 11),
-            bg=self.colors["secondary"],
-            fg=self.colors["dark"],
-            relief="flat",
-            bd=0,
-            padx=20,
-            pady=10,
-            cursor="hand2",
-        )
-        self.refresh_button.pack(side="left")
-
-        # Configurar efectos hover para el botón de refrescar
-        def on_enter_refresh(e):
-            self.refresh_button.config(bg=self.colors["hover"], fg=self.colors["white"])
-
-        def on_leave_refresh(e):
-            self.refresh_button.config(
-                bg=self.colors["secondary"], fg=self.colors["white"]
-            )
-
-        self.refresh_button.bind("<Enter>", on_enter_refresh)
-        self.refresh_button.bind("<Leave>", on_leave_refresh)
-
-        # Label para mostrar archivo seleccionado con estilo mejorado
-        self.file_label = tk.Label(
-            file_frame,
-            text="Ningún archivo seleccionado",
-            font=("Arial", 11),
-            bg=self.colors["white"],
-            fg=self.colors["dark_gray"],
-            wraplength=400,
-            padx=15,
-            pady=8,
-            relief="sunken",
-            bd=1,
-        )
-        self.file_label.pack(side="right", padx=(15, 0), fill="x", expand=True)
-
-        # Frame para filtros con nuevo estilo
-        filter_frame = create_rounded_frame(main_frame, "🔍 Filtros de Búsqueda")
-
-        # Frame para prestaciones con estilo moderno
-        prestacion_frame = tk.Frame(filter_frame, bg=self.colors["white"])
-        prestacion_frame.pack(fill="x", pady=(0, 8))
-
-        # Frame para búsqueda con diseño mejorado
-        search_prestacion_frame = tk.Frame(prestacion_frame, bg=self.colors["white"])
-        search_prestacion_frame.pack(fill="x", pady=(0, 3))
-
-        # Estilo personalizado para entry
-        entry_frame = tk.Frame(
-            search_prestacion_frame, bg=self.colors["light"], bd=1, relief="flat"
-        )
-        entry_frame.pack(side="left", fill="x", expand=True, padx=(0, 8))
-
-        # Label y campo de búsqueda con diseño moderno
-        search_label = tk.Label(
-            search_prestacion_frame,
-            text="🔍 Buscar:",
-            font=("Arial", 10, "bold"),
-            bg=self.colors["white"],
-            fg=self.colors["primary"],
-        )
-        search_label.pack(side="left", padx=(0, 8))
-
-        # Campo de búsqueda con estilo mejorado
-        self.search_prestacion_var = tk.StringVar()
-        self.search_prestacion_entry = tk.Entry(
-            entry_frame,
-            textvariable=self.search_prestacion_var,
-            font=("Arial", 10),
-            bg=self.colors["light"],
-            fg=self.colors["dark"],
-            relief="flat",
-            bd=0,
-            width=25,
-            insertbackground=self.colors["primary"],
-        )
-        self.search_prestacion_entry.pack(
-            side="left", fill="x", expand=True, padx=8, pady=6
-        )
-
-        # Botón para limpiar búsqueda con estilo moderno
-        self.clear_search_button = tk.Button(
-            search_prestacion_frame,
-            text="❌",
-            command=self.limpiar_busqueda_prestacion,
-            font=("Arial", 8),
-            bg=self.colors["error"],
-            fg=self.colors["white"],
-            relief="flat",
-            bd=0,
-            width=2,
-            height=1,
-            cursor="hand2",
-        )
-        self.clear_search_button.pack(side="right")
-
-        # Efectos hover para el botón de limpiar
-        def on_enter_clear(e):
-            self.clear_search_button.config(bg=self.colors["hover"])
-
-        def on_leave_clear(e):
-            self.clear_search_button.config(bg=self.colors["error"])
-
-        self.clear_search_button.bind("<Enter>", on_enter_clear)
-        self.clear_search_button.bind("<Leave>", on_leave_clear)
-
-        # Frame para selección de prestación con estilo moderno
-        select_prestacion_frame = tk.Frame(prestacion_frame, bg=self.colors["white"])
-        select_prestacion_frame.pack(fill="x", pady=(10, 0))
-
-        # Label para prestación con diseño mejorado
-        prestacion_label = tk.Label(
-            select_prestacion_frame,
-            text="📋 Prestación:",
-            font=("Arial", 10, "bold"),
-            bg=self.colors["white"],
-            fg=self.colors["primary"],
-        )
-        prestacion_label.pack(side="left", padx=(0, 8))
-
-        # Frame para el combobox con estilo moderno
-        combo_frame = tk.Frame(
-            select_prestacion_frame, bg=self.colors["light"], bd=1, relief="flat"
-        )
-        combo_frame.pack(side="left", fill="x", expand=True)
-
-        self.prestacion_var = tk.StringVar()
-        self.prestacion_combo = ttk.Combobox(
-            combo_frame,
-            textvariable=self.prestacion_var,
-            font=("Arial", 10),
-            state="readonly",
-            width=35,
-        )
-        self.prestacion_combo.pack(side="left", fill="x", expand=True, padx=8, pady=6)
-
-        # Configurar estilo del combobox
-        combo_style = ttk.Style()
-        combo_style.configure(
-            "TCombobox",
-            background=self.colors["light"],
-            fieldbackground=self.colors["light"],
-            foreground=self.colors["dark"],
-            arrowcolor=self.colors["primary"],
-            relief="flat",
-        )
-
-        # Vincular eventos de búsqueda
-        self.search_prestacion_var.trace("w", self.filtrar_prestaciones)
-        self.prestacion_combo.bind("<<ComboboxSelected>>", self.on_prestacion_selected)
-
-        # Frame para botones con diseño moderno
-        buttons_frame = tk.Frame(filter_frame, bg=self.colors["white"])
-        buttons_frame.pack(pady=(15, 0), anchor="center")
-
-        # Botón para buscar prestación con estilo moderno
-        self.search_button = tk.Button(
-            buttons_frame,
-            text="🔍 Buscar",
-            command=self.buscar_prestacion,
-            font=("Arial", 11, "bold"),
-            bg=self.colors["success"],
-            fg=self.colors["white"],
-            relief="flat",
-            bd=0,
-            padx=20,
-            pady=8,
-            cursor="hand2",
-        )
-        self.search_button.pack(side="left", padx=5)
-
-        # Efectos hover para el botón de búsqueda
-        def on_enter_search(e):
-            self.search_button.config(bg=self.colors["hover"])
-
-        def on_leave_search(e):
-            self.search_button.config(bg=self.colors["success"])
-
-        self.search_button.bind("<Enter>", on_enter_search)
-        self.search_button.bind("<Leave>", on_leave_search)
-
-        # Botón para configurar columnas con estilo moderno
-        self.columns_button = tk.Button(
-            buttons_frame,
-            text="⚙️ Columnas",
-            command=self.configurar_columnas,
-            font=("Arial", 11),
-            bg=self.colors["secondary"],
-            fg=self.colors["dark"],
-            relief="flat",
-            bd=0,
-            padx=15,
-            pady=8,
-            cursor="hand2",
-        )
-        self.columns_button.pack(side="left", padx=5)
-
-        # Efectos hover para el botón de columnas
-        def on_enter_columns(e):
-            self.columns_button.config(bg=self.colors["hover"], fg=self.colors["white"])
-
-        def on_leave_columns(e):
-            self.columns_button.config(
-                bg=self.colors["secondary"], fg=self.colors["dark"]
-            )
-
-        self.columns_button.bind("<Enter>", on_enter_columns)
-        self.columns_button.bind("<Leave>", on_leave_columns)
-        self.columns_button.pack(pady=(5, 0))
-
-        # Frame para botones de acción en la parte superior más compacto
-        top_buttons_frame = tk.Frame(filter_frame, bg=self.colors["white"])
-        top_buttons_frame.pack(fill="x", pady=(8, 0))
-
-        # Botón para guardar resultados más compacto
-        self.save_button = tk.Button(
-            top_buttons_frame,
-            text="💾 GUARDAR",
-            command=self.guardar_resultado,
-            font=("Arial", 9, "bold"),
-            bg="#27AE60",  # Verde brillante
-            fg="white",
-            activebackground="#2ECC71",
-            activeforeground="white",
-            relief="raised",
-            bd=1,
-            padx=10,
-            pady=4,
-            cursor="hand2",
-        )
-        self.save_button.pack(side="right")
-
-        # Label informativo más compacto
-        info_label = tk.Label(
-            top_buttons_frame,
-            text="📊 Haz clic en el botón verde para guardar",
-            font=("Arial", 8),
-            bg=self.colors["white"],
-            fg=self.colors["dark_gray"],
-        )
-        info_label.pack(side="left")
-
-        # Frame para resultados con más espacio
-        results_frame = tk.LabelFrame(
-            main_frame,
-            text="📊 Resultados del Filtrado",
-            font=("Arial", 13, "bold"),
-            bg=self.colors["white"],
-            fg=self.colors["primary"],
-            padx=15,
-            pady=10,
-            relief="groove",
-            bd=2,
-        )
-        results_frame.pack(fill="both", expand=True, pady=(0, 10))
-
-        # Información de resultados más compacta
-        self.results_info = tk.Label(
-            results_frame,
-            text="No hay datos cargados",
-            font=("Arial", 10),
-            bg=self.colors["white"],
-            fg=self.colors["dark_gray"],
-            padx=10,
-            pady=6,
-            relief="sunken",
-            bd=1,
-        )
-        self.results_info.pack(anchor="w", pady=(0, 8), fill="x")
-
-        # Treeview para mostrar resultados con más altura
-        tree_frame = tk.Frame(results_frame, bg=self.colors["white"])
-        tree_frame.pack(fill="both", expand=True)
-
-        self.tree = ttk.Treeview(tree_frame, show="headings", height=18)
-
-        # Scrollbars para el treeview con estilo mejorado
-        tree_scroll_y = ttk.Scrollbar(
-            tree_frame, orient="vertical", command=self.tree.yview
-        )
-        tree_scroll_x = ttk.Scrollbar(
-            tree_frame, orient="horizontal", command=self.tree.xview
-        )
-        self.tree.configure(
-            yscrollcommand=tree_scroll_y.set, xscrollcommand=tree_scroll_x.set
-        )
-
-        # Empaquetar treeview y scrollbars
-        self.tree.pack(side="left", fill="both", expand=True)
-        tree_scroll_y.pack(side="right", fill="y")
-        tree_scroll_x.pack(side="bottom", fill="x")
-
-        # Frame para botones de acción con estilo mejorado
-        action_frame = tk.Frame(main_frame, bg=self.colors["gradient_start"])
-        action_frame.pack(fill="x", pady=(0, 15))
-
-        # Botón para limpiar resultados con estilo mejorado
-        self.clear_button = tk.Button(
-            action_frame,
-            text="🧹 Limpiar Resultados",
-            command=self.limpiar_resultados,
-            font=("Arial", 11),
-            bg=self.colors["warning"],
-            fg=self.colors["white"],
-            activebackground=self.colors["hover"],
-            activeforeground=self.colors["white"],
-            relief="raised",
-            bd=2,
-            padx=20,
-            pady=8,
-            cursor="hand2",
-        )
-        self.clear_button.pack(side="left", padx=(0, 15))
-
-        # Botón para mostrar todas las prestaciones con estilo mejorado
-        self.show_all_button = tk.Button(
-            action_frame,
-            text="📋 Mostrar Todas las Prestaciones",
-            command=self.mostrar_todas_prestaciones,
-            font=("Arial", 11),
-            bg=self.colors["secondary"],
-            fg=self.colors["dark"],
-            activebackground=self.colors["hover"],
-            activeforeground=self.colors["white"],
-            relief="raised",
-            bd=2,
-            padx=20,
-            pady=8,
-            cursor="hand2",
-        )
-        self.show_all_button.pack(side="right")
-
-        # Status bar con estilo mejorado
-        self.status_var = tk.StringVar()
-        self.status_var.set("Sistema listo - Seleccione un archivo Excel")
-        self.status_bar = tk.Label(
-            self.root,
-            textvariable=self.status_var,
-            relief="sunken",
-            anchor="w",
-            font=("Arial", 10),
-            bg=self.colors["primary"],
-            fg=self.colors["white"],
-            padx=15,
-            pady=8,
-        )
-        self.status_bar.pack(side="bottom", fill="x")
-
-        # Footer con marca registrada
-        footer_frame = tk.Frame(self.root, bg=self.colors["primary_dark"], height=25)
-        footer_frame.pack(side="bottom", fill="x")
-        footer_frame.pack_propagate(False)
-
-        # Marca registrada sutil
-        copyright_label = tk.Label(
-            footer_frame,
-            text="© 2024 Jonathan Fuentes Toledo - Vidasalud Dental",
-            font=("Arial", 8),
-            bg=self.colors["primary_dark"],
-            fg=self.colors["light"],
-        )
-        copyright_label.pack(side="right", padx=10, pady=5)
-
-    def refrescar_archivos(self):
-        """Refresca la lista de archivos disponibles"""
-        self.cargar_archivos_disponibles()
-
-        # Actualizar información de archivos
         if self.archivos_excel:
-            self.file_label.config(
-                text=f"{len(self.archivos_excel)} archivos disponibles"
-            )
+            self.lbl_current_file.configure(text=f"{len(self.archivos_excel)} archivos encontrados en la biblioteca.")
         else:
-            self.file_label.config(text="Ningún archivo encontrado")
-
-        # Limpiar prestaciones
-        self.prestacion_combo["values"] = []
-        self.prestacion_var.set("")
-        self.search_button.config(state="disabled")
-
-        self.status_var.set(
-            f"✅ Lista actualizada - {len(self.archivos_excel)} archivos encontrados"
-        )
-
-    def on_archivo_selected(self, event):
-        """Cuando se selecciona un archivo"""
-        # Este método ya no es necesario con la nueva interfaz
-        pass
+            self.lbl_current_file.configure(text="No se encontraron archivos en la carpeta.")
 
     def cargar_archivo(self):
-        """Carga el archivo Excel seleccionado"""
-        # Mostrar diálogo para seleccionar archivo
         archivo_path = filedialog.askopenfilename(
             title="Seleccionar archivo Excel",
             filetypes=[("Archivos Excel", "*.xlsx"), ("Todos los archivos", "*.*")],
             initialdir=os.path.join(self.get_data_path(), "archivos_excel"),
         )
-
-        if not archivo_path:
-            return
+        if not archivo_path: return
 
         try:
-            # Cargar datos
             self.df = pd.read_excel(archivo_path, engine="openpyxl", header=1)
             self.archivo_seleccionado = os.path.basename(archivo_path)
-
-            # Obtener prestaciones
-            if self.df is not None and "Prestación" in self.df.columns:
-                self.prestaciones = sorted(self.df["Prestación"].unique())
-
-                # Actualizar combo de prestaciones
-                self.prestacion_combo["values"] = self.prestaciones
-                self.prestacion_var.set("")
-
-                # Configurar búsqueda de prestaciones
-                self.search_prestacion_var.set("")
-
-                # Habilitar búsqueda
-                self.search_button.config(state="normal")
-
-                # Habilitar botón de guardar (aunque no haya filtrado aún)
-                self.save_button.config(state="normal")
-
-                # Mostrar información
-                info_text = f"✅ Archivo cargado: {self.archivo_seleccionado}\n📊 Registros: {len(self.df):,}\n📋 Prestaciones: {len(self.prestaciones)}"
-                self.results_info.config(text=info_text)
-
-                # Actualizar label del archivo
-                self.file_label.config(text=self.archivo_seleccionado)
-
-                self.status_var.set(
-                    f"✅ Archivo cargado: {self.archivo_seleccionado} - {len(self.df):,} registros"
-                )
+            
+            if "Prestación" in self.df.columns:
+                self.prestaciones = sorted(self.df["Prestación"].unique().astype(str))
+                self.combo_prestacion.configure(values=self.prestaciones)
+                self.combo_prestacion.set("")
+                self.lbl_current_file.configure(text=f"Cargado: {self.archivo_seleccionado}")
+                
+                # Actualizar estadísticas iniciales
+                self.stat_total_var.set(f"{len(self.df):,}")
+                self.stat_filtro_var.set("0")
+                self.stat_perc_var.set("0%")
+                
+                self.btn_save.configure(state="normal")
             else:
-                messagebox.showerror(
-                    "❌ Error", "El archivo no contiene la columna 'Prestación'"
-                )
-
+                 messagebox.showerror("Error", "Columna 'Prestación' no encontrada.")
         except Exception as e:
-            messagebox.showerror("❌ Error", f"Error al cargar el archivo:\n{str(e)}")
+            messagebox.showerror("Error", str(e))
 
-    def on_prestacion_selected(self, event):
-        """Cuando se selecciona una prestación"""
-        prestacion = self.prestacion_var.get()
-        if prestacion:
-            self.status_var.set(f"📋 Prestación seleccionada: {prestacion}")
-
-    def filtrar_prestaciones(self, *args):
-        """Filtra las prestaciones según el texto de búsqueda"""
-        texto_busqueda = self.search_prestacion_var.get().lower().strip()
-
-        if not self.prestaciones:
-            return
-
-        if not texto_busqueda:
-            # Si no hay texto de búsqueda, mostrar todas las prestaciones
-            self.prestacion_combo["values"] = self.prestaciones
+    def filtrar_prestaciones_evento(self, event):
+        texto = self.txt_search.get().lower()
+        if not texto:
+            self.combo_prestacion.configure(values=self.prestaciones)
         else:
-            # Filtrar prestaciones que contengan el texto de búsqueda
-            prestaciones_filtradas = [
-                prestacion
-                for prestacion in self.prestaciones
-                if texto_busqueda in prestacion.lower()
-            ]
-            self.prestacion_combo["values"] = prestaciones_filtradas
-
-            # Si solo hay una prestación filtrada, seleccionarla automáticamente
-            if len(prestaciones_filtradas) == 1:
-                self.prestacion_var.set(prestaciones_filtradas[0])
-
-        # Actualizar estado
-        prestaciones_mostradas = len(self.prestacion_combo["values"])
-        total_prestaciones = len(self.prestaciones)
-
-        if texto_busqueda:
-            self.status_var.set(
-                f"🔍 Búsqueda: '{texto_busqueda}' - {prestaciones_mostradas} de {total_prestaciones} prestaciones"
-            )
-        else:
-            self.status_var.set(
-                f"📋 Mostrando todas las prestaciones ({total_prestaciones})"
-            )
-
-    def limpiar_busqueda_prestacion(self):
-        """Limpia el campo de búsqueda de prestaciones"""
-        self.search_prestacion_var.set("")
-        self.prestacion_var.set("")
-
-        if self.prestaciones:
-            self.prestacion_combo["values"] = self.prestaciones
-            self.status_var.set(
-                f"✅ Búsqueda limpiada - Mostrando todas las prestaciones ({len(self.prestaciones)})"
-            )
-        else:
-            self.status_var.set("✅ Búsqueda limpiada")
+            values = [p for p in self.prestaciones if texto in p.lower()]
+            self.combo_prestacion.configure(values=values)
+            if len(values) > 0:
+                self.combo_prestacion.set(values[0])
 
     def buscar_prestacion(self):
-        """Busca la prestación seleccionada"""
-        prestacion = self.prestacion_var.get()
+        prestacion = self.combo_prestacion.get()
+        if not prestacion or self.df is None: return
 
-        if not prestacion:
-            messagebox.showwarning(
-                "⚠️ Advertencia", "Por favor selecciona una prestación"
-            )
-            return
+        filtro = self.df["Prestación"].astype(str) == prestacion
+        self.resultado_filtrado = self.df[filtro]
+        
+        self.mostrar_resultados()
+        
+    def mostrar_resultados(self):
+        # Clear
+        for item in self.tree.get_children(): self.tree.delete(item)
+        
+        if self.resultado_filtrado is None: return
 
-        if self.df is None:
-            messagebox.showwarning("⚠️ Advertencia", "No hay datos cargados")
-            return
-
-        try:
-            # Filtrar datos
-            filtro = self.df["Prestación"] == prestacion
-            self.resultado_filtrado = self.df[filtro]
-
-            # Mostrar resultados en treeview
-            self.mostrar_resultados_en_treeview()
-
-            # Mostrar información
-            total_registros = len(self.resultado_filtrado)
-            total_original = len(self.df)
-            porcentaje = (total_registros / total_original) * 100
-
-            info_text = f"✅ Filtrado completado\n📊 Registros: {total_registros:,} de {total_original:,} ({porcentaje:.1f}%)\n🔍 Prestación: {prestacion}"
-            self.results_info.config(text=info_text)
-
-            # Habilitar botón de guardar
-            self.save_button.config(state="normal")
-            self.status_var.set(
-                f"✅ Encontrados {total_registros} registros para '{prestacion}'"
-            )
-
-        except Exception as e:
-            messagebox.showerror("❌ Error", f"Error al filtrar:\n{str(e)}")
-
-    def mostrar_resultados_en_treeview(self):
-        """Muestra los resultados en el treeview"""
-        # Limpiar treeview
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-
-        if self.resultado_filtrado is None or len(self.resultado_filtrado) == 0:
-            return
-
-        # Usar columnas seleccionadas o todas si no hay selección
+        # Columns
         if self.columnas_seleccionadas:
-            columnas = [
-                col
-                for col in self.columnas_seleccionadas
-                if col in self.resultado_filtrado.columns
-            ]
-            if columnas:
-                df_mostrar = self.resultado_filtrado[columnas].copy()
-            else:
-                df_mostrar = self.resultado_filtrado.copy()
-                columnas = list(self.resultado_filtrado.columns)
+            cols = [c for c in self.columnas_seleccionadas if c in self.resultado_filtrado.columns]
+            df_show = self.resultado_filtrado[cols].copy()
         else:
-            columnas = list(self.resultado_filtrado.columns)
-            df_mostrar = self.resultado_filtrado.copy()
+            cols = list(self.resultado_filtrado.columns)
+            df_show = self.resultado_filtrado.copy()
 
-        # Verificar que df_mostrar sea un DataFrame válido
-        if not isinstance(df_mostrar, pd.DataFrame):
-            df_mostrar = pd.DataFrame(df_mostrar)
-
-        # Configurar columnas
-        self.tree["columns"] = columnas
-
-        # Configurar encabezados
-        for col in columnas:
+        self.tree["columns"] = cols
+        for col in cols:
             self.tree.heading(col, text=col)
-            self.tree.column(col, width=100, minwidth=50)
+            self.tree.column(col, width=100)
 
-        # Insertar datos
-        for idx, row in df_mostrar.iterrows():
+        for idx, row in df_show.iterrows():
             valores = [str(val) for val in row.values]
             self.tree.insert("", "end", values=valores)
-
-    def obtener_ruta_guardado(self):
-        """Obtiene la ruta segura para guardar archivos"""
-        # Usar carpeta Documentos del usuario
-        docs = os.path.join(os.path.expanduser("~"), "Documents")
-        output_dir = os.path.join(docs, "Vidasalud_Export")
-
-        if not os.path.exists(output_dir):
-            try:
-                os.makedirs(output_dir)
-            except:
-                return docs  # Fallback a documentos si falla crear carpeta
-
-        return output_dir
-
-    def guardar_resultado(self):
-        """Guarda el resultado filtrado"""
-        # Si no hay datos filtrados, preguntar si quiere guardar todos los datos
-        if self.resultado_filtrado is None or len(self.resultado_filtrado) == 0:
-            if self.df is not None and len(self.df) > 0:
-                respuesta = messagebox.askyesno(
-                    "📊 Sin Filtros",
-                    "No hay datos filtrados.\n\n¿Quieres guardar TODOS los datos del archivo?\n\nSi no, primero filtra una prestación.",
-                )
-                if respuesta:
-                    # Guardar todos los datos
-                    self.guardar_todos_datos()
-                return
-            else:
-                messagebox.showwarning(
-                    "⚠️ Advertencia",
-                    "No hay datos para guardar. Primero carga un archivo Excel.",
-                )
-                return
-
-        try:
-            # Crear nombre del archivo
-            prestacion = self.prestacion_var.get()
-            if self.archivo_seleccionado:
-                archivo_base = os.path.splitext(self.archivo_seleccionado)[0]
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                nombre_archivo = f"Vidasalud_{archivo_base}_{prestacion.replace(' ', '_').replace('/', '_')}_{timestamp}_JFT.xlsx"
-
-                output_dir = self.obtener_ruta_guardado()
-                ruta_completa = os.path.join(output_dir, nombre_archivo)
-
-                # Guardar archivo
-                self.resultado_filtrado.to_excel(ruta_completa, index=False)
-
-                messagebox.showinfo(
-                    "✅ Archivo Guardado",
-                    f"El archivo se ha guardado exitosamente!\n\n📁 Nombre: {nombre_archivo}\n📊 Registros: {len(self.resultado_filtrado):,}\n📍 Ubicación: {output_dir}",
-                )
-
-                self.status_var.set(f"💾 Archivo guardado: {nombre_archivo}")
-            else:
-                messagebox.showerror("❌ Error", "No hay archivo seleccionado")
-
-        except Exception as e:
-            messagebox.showerror("❌ Error", f"Error al guardar:\n{str(e)}")
-
-    def guardar_todos_datos(self):
-        """Guarda todos los datos del archivo"""
-        try:
-            if self.df is not None and self.archivo_seleccionado:
-                archivo_base = os.path.splitext(self.archivo_seleccionado)[0]
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                nombre_archivo = (
-                    f"Vidasalud_{archivo_base}_TODOS_LOS_DATOS_{timestamp}_JFT.xlsx"
-                )
-
-                output_dir = self.obtener_ruta_guardado()
-                ruta_completa = os.path.join(output_dir, nombre_archivo)
-
-                # Guardar archivo
-                self.df.to_excel(ruta_completa, index=False)
-
-                messagebox.showinfo(
-                    "✅ Archivo Guardado",
-                    f"Se guardaron TODOS los datos exitosamente!\n\n📁 Nombre: {nombre_archivo}\n📊 Registros: {len(self.df):,}\n📍 Ubicación: {output_dir}",
-                )
-
-                self.status_var.set(f"💾 Archivo guardado: {nombre_archivo}")
-            else:
-                messagebox.showerror(
-                    "❌ Error", "No hay archivo seleccionado o datos cargados"
-                )
-
-        except Exception as e:
-            messagebox.showerror("❌ Error", f"Error al guardar:\n{str(e)}")
+            
+        # Actualizar Estadísticas
+        total = len(self.df) if self.df is not None else 0
+        filtrados = len(df_show)
+        porcentaje = (filtrados / total * 100) if total > 0 else 0
+        
+        self.stat_filtro_var.set(f"{filtrados:,}")
+        self.stat_perc_var.set(f"{porcentaje:.1f}%")
 
     def limpiar_resultados(self):
-        """Limpia los resultados y la búsqueda"""
-        # Limpiar variables de prestación
-        self.prestacion_var.set("")
-        self.search_prestacion_var.set("")
         self.resultado_filtrado = None
+        for item in self.tree.get_children(): self.tree.delete(item)
+        self.combo_prestacion.set("")
+        self.txt_search.delete(0, 'end')
+        
+        # Reset stats
+        self.stat_filtro_var.set("0")
+        self.stat_perc_var.set("0%")
 
-        # Limpiar treeview
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+    def guardar_resultado(self):
+        if self.resultado_filtrado is None or len(self.resultado_filtrado) == 0:
+             # Logic to save all if no filter
+             if self.df is not None:
+                 if messagebox.askyesno("¿Guardar Todo?", "No hay filtro aplicado. ¿Deseas guardar TODOS los datos?"):
+                     self.guardar_df(self.df, "COMPLETO")
+             return
 
-        # Limpiar información de resultados
-        if self.df is not None:
-            info_text = f"✅ Archivo cargado: {self.archivo_seleccionado}\n📊 Registros: {len(self.df):,}\n📋 Prestaciones: {len(self.prestaciones)}"
-            self.results_info.config(text=info_text)
-        else:
-            self.results_info.config(text="No hay datos cargados")
+        self.guardar_df(self.resultado_filtrado, self.combo_prestacion.get())
 
-        # Restaurar todas las prestaciones en el combo
-        if self.prestaciones:
-            self.prestacion_combo["values"] = self.prestaciones
-
-        # Deshabilitar botón de guardar
-        self.save_button.config(state="disabled")
-
-        # Actualizar estado
-        self.status_var.set("✅ Resultados limpiados - Listo para nueva búsqueda")
-
-        # Mostrar mensaje de confirmación
-        messagebox.showinfo(
-            "🧹 Limpieza Completada",
-            "Se han limpiado todos los resultados y la búsqueda.\n\nPuedes realizar una nueva búsqueda.",
-        )
-
-    def mostrar_todas_prestaciones(self):
-        """Muestra todas las prestaciones disponibles"""
-        if not self.prestaciones:
-            messagebox.showinfo(
-                "📋 Prestaciones",
-                "No hay prestaciones cargadas. Primero carga un archivo Excel.",
-            )
-            return
-
-        # Crear ventana de prestaciones con estilo mejorado
-        prestaciones_window = tk.Toplevel(self.root)
-        prestaciones_window.title("📋 Todas las Prestaciones Disponibles")
-        prestaciones_window.geometry("700x500")
-        prestaciones_window.configure(bg=self.colors["gradient_start"])
-
-        # Header de la ventana
-        header_prestaciones = tk.Frame(
-            prestaciones_window, bg=self.colors["primary"], height=80
-        )
-        header_prestaciones.pack(fill="x", padx=0, pady=0)
-        header_prestaciones.pack_propagate(False)
-
-        # Título con estilo mejorado
-        tk.Label(
-            header_prestaciones,
-            text="📋 Prestaciones Disponibles",
-            font=("Arial", 16, "bold"),
-            bg=self.colors["primary"],
-            fg=self.colors["white"],
-        ).pack(pady=15)
-
-        # Frame principal
-        main_prestaciones_frame = tk.Frame(prestaciones_window, bg=self.colors["white"])
-        main_prestaciones_frame.pack(fill="both", expand=True, padx=20, pady=20)
-
-        # Información de prestaciones
-        info_label = tk.Label(
-            main_prestaciones_frame,
-            text=f"Total: {len(self.prestaciones)} prestaciones disponibles",
-            font=("Arial", 11, "bold"),
-            bg=self.colors["white"],
-            fg=self.colors["primary"],
-            pady=10,
-        )
-        info_label.pack()
-
-        # Listbox con scrollbar mejorado
-        frame_listbox = tk.Frame(main_prestaciones_frame, bg=self.colors["white"])
-        frame_listbox.pack(fill="both", expand=True, padx=20, pady=10)
-
-        scrollbar = tk.Scrollbar(frame_listbox, bg=self.colors["secondary"])
-        scrollbar.pack(side="right", fill="y")
-
-        listbox = tk.Listbox(
-            frame_listbox,
-            yscrollcommand=scrollbar.set,
-            font=("Arial", 11),
-            bg=self.colors["light"],
-            fg=self.colors["dark"],
-            selectmode="single",
-            relief="sunken",
-            bd=2,
-            selectbackground=self.colors["primary"],
-            selectforeground=self.colors["white"],
-        )
-        listbox.pack(side="left", fill="both", expand=True)
-        scrollbar.config(command=listbox.yview)
-
-        # Insertar prestaciones con numeración mejorada
-        for i, prestacion in enumerate(self.prestaciones, 1):
-            listbox.insert(tk.END, f"{i:3d}. {prestacion}")
-
-        # Frame para botones
-        button_frame = tk.Frame(main_prestaciones_frame, bg=self.colors["white"])
-        button_frame.pack(fill="x", padx=20, pady=15)
-
-        # Botón cerrar con estilo mejorado
-        tk.Button(
-            button_frame,
-            text="✅ Cerrar",
-            command=prestaciones_window.destroy,
-            font=("Arial", 11, "bold"),
-            bg=self.colors["success"],
-            fg=self.colors["white"],
-            relief="raised",
-            bd=2,
-            padx=25,
-            pady=8,
-            cursor="hand2",
-        ).pack(side="right")
+    def guardar_df(self, dataframe, suffix):
+         try:
+            archivo_base = os.path.splitext(self.archivo_seleccionado)[0]
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            clean_suffix = suffix.replace(' ', '_').replace('/', '_')
+            nombre = f"VS_{archivo_base}_{clean_suffix}_{timestamp}.xlsx"
+            
+            docs = os.path.join(os.path.expanduser("~"), "Documents")
+            out_dir = os.path.join(docs, "Vidasalud_Export")
+            if not os.path.exists(out_dir): os.makedirs(out_dir)
+            
+            path = os.path.join(out_dir, nombre)
+            dataframe.to_excel(path, index=False)
+            messagebox.showinfo("Guardado", f"Archivo guardado en:\n{path}")
+         except Exception as e:
+             messagebox.showerror("Error", str(e))
 
     def configurar_columnas(self):
-        """Abre una ventana para seleccionar qué columnas mostrar"""
-        if self.df is None:
-            messagebox.showinfo(
-                "📋 Columnas",
-                "Primero carga un archivo Excel para ver las columnas disponibles.",
-            )
-            return
-
-        # Crear ventana de configuración de columnas
-        columns_window = tk.Toplevel(self.root)
-        columns_window.title("⚙️ Configurar Columnas de Resultados")
-        columns_window.geometry("500x600")
-        columns_window.configure(bg=self.colors["light"])
-
-        # Título
-        tk.Label(
-            columns_window,
-            text="⚙️ Seleccionar Columnas para Mostrar",
-            font=("Arial", 14, "bold"),
-            bg=self.colors["light"],
-            fg=self.colors["dark"],
-        ).pack(pady=10)
-
-        # Instrucciones
-        tk.Label(
-            columns_window,
-            text="Marca las columnas que quieres ver en los resultados:",
-            font=("Arial", 10),
-            bg=self.colors["light"],
-            fg=self.colors["dark_gray"],
-        ).pack(pady=5)
-
-        # Frame para checkboxes
-        checkbox_frame = tk.Frame(columns_window, bg=self.colors["light"])
-        checkbox_frame.pack(fill="both", expand=True, padx=20, pady=10)
-
-        # Scrollbar para checkboxes
-        scrollbar = tk.Scrollbar(checkbox_frame)
-        scrollbar.pack(side="right", fill="y")
-
-        canvas = tk.Canvas(
-            checkbox_frame, yscrollcommand=scrollbar.set, bg=self.colors["light"]
-        )
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.config(command=canvas.yview)
-
-        inner_frame = tk.Frame(canvas, bg=self.colors["light"])
-        canvas.create_window((0, 0), window=inner_frame, anchor="nw")
-
-        # Variables para checkboxes
-        column_vars = {}
-
-        # Crear checkboxes para cada columna
-        for i, columna in enumerate(self.df.columns):
-            var = tk.BooleanVar()
-            # Marcar como seleccionada si ya está en la lista o si es la primera vez
-            if (
-                not self.columnas_seleccionadas
-                or columna in self.columnas_seleccionadas
-            ):
-                var.set(True)
-            column_vars[columna] = var
-
-            checkbox = tk.Checkbutton(
-                inner_frame,
-                text=columna,
-                variable=var,
-                font=("Arial", 10),
-                bg=self.colors["light"],
-                fg=self.colors["dark"],
-                selectcolor=self.colors["secondary"],
-                activebackground=self.colors["light"],
-                activeforeground=self.colors["dark"],
-            )
-            checkbox.pack(anchor="w", pady=2)
-
-        # Botones de acción
-        button_frame = tk.Frame(columns_window, bg=self.colors["light"])
-        button_frame.pack(fill="x", padx=20, pady=10)
-
-        def aplicar_configuracion():
-            # Obtener columnas seleccionadas
-            self.columnas_seleccionadas = [
-                col for col, var in column_vars.items() if var.get()
-            ]
-
-            # Si hay resultados filtrados, actualizar la vista
+        if self.df is None: return
+        
+        # Simple pop-up window using CTk
+        pop = ctk.CTkToplevel(self.root)
+        pop.title("Configurar Columnas")
+        pop.geometry("400x500")
+        
+        lbl = ctk.CTkLabel(pop, text="Seleccionar Columnas", font=ctk.CTkFont(weight="bold"))
+        lbl.pack(pady=10)
+        
+        scroll = ctk.CTkScrollableFrame(pop)
+        scroll.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        self.check_vars = {}
+        for col in self.df.columns:
+            var = ctk.BooleanVar(value=(col in self.columnas_seleccionadas or not self.columnas_seleccionadas))
+            self.check_vars[col] = var
+            chk = ctk.CTkCheckBox(scroll, text=col, variable=var)
+            chk.pack(anchor="w", pady=2)
+            
+        def apply():
+            self.columnas_seleccionadas = [col for col, var in self.check_vars.items() if var.get()]
             if self.resultado_filtrado is not None:
-                self.mostrar_resultados_en_treeview()
-
-            columns_window.destroy()
-            messagebox.showinfo(
-                "✅ Configuración",
-                f"Se configuraron {len(self.columnas_seleccionadas)} columnas para mostrar.",
-            )
-
-        def seleccionar_todas():
-            for var in column_vars.values():
-                var.set(True)
-
-        def deseleccionar_todas():
-            for var in column_vars.values():
-                var.set(False)
-
-        # Botones
-        tk.Button(
-            button_frame,
-            text="✅ Aplicar",
-            command=aplicar_configuracion,
-            font=("Arial", 11, "bold"),
-            bg=self.colors["success"],
-            fg=self.colors["white"],
-            relief="raised",
-            bd=2,
-            padx=20,
-            pady=5,
-        ).pack(side="left", padx=(0, 10))
-
-        tk.Button(
-            button_frame,
-            text="📋 Seleccionar Todas",
-            command=seleccionar_todas,
-            font=("Arial", 10),
-            bg=self.colors["primary"],
-            fg=self.colors["white"],
-            relief="raised",
-            bd=2,
-            padx=15,
-            pady=5,
-        ).pack(side="left", padx=(0, 10))
-
-        tk.Button(
-            button_frame,
-            text="❌ Deseleccionar Todas",
-            command=deseleccionar_todas,
-            font=("Arial", 10),
-            bg=self.colors["warning"],
-            fg=self.colors["white"],
-            relief="raised",
-            bd=2,
-            padx=15,
-            pady=5,
-        ).pack(side="left")
-
-        # Configurar scroll
-        inner_frame.update_idletasks()
-        canvas.config(scrollregion=canvas.bbox("all"))
-
+                self.mostrar_resultados()
+            pop.destroy()
+            
+        ctk.CTkButton(pop, text="Aplicar Cambios", command=apply).pack(pady=10)
 
 def main():
-    root = tk.Tk()
-    app = FiltradorMultiArchivosGUI(root)
-    root.mainloop()
-
+    app = ctk.CTk()
+    gui = FiltradorMultiArchivosGUI(app)
+    app.mainloop()
 
 if __name__ == "__main__":
     main()
