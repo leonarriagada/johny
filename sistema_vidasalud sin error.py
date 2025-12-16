@@ -19,7 +19,7 @@ class FiltradorMultiArchivosGUI:
     def __init__(self, root):
         self.root = root
         self.root.title(
-            "🦷 Vidasalud Dental - Filtrador Multi-Archivos | © Jonathan Fuentes Toledo"
+            "🦷 VidaSalud Dental - Filtrador Multi-Archivos | © Jonathan Fuentes Toledo"
         )
         self.root.geometry("1000x750")
 
