@@ -3,6 +3,8 @@ name: Build Mac App
 on:
   push:
     branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
@@ -12,22 +14,35 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - name: Set up Python
+    - name: Set up Python 3.10
       uses: actions/setup-python@v4
       with:
-        python-version: '3.10'
+        python-version: "3.10"
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install pyinstaller
+
+    - name: Create Spec File
+      run: |
+        # Generate the spec file first
+        pyi-makespec --noconsole --onefile --windowed --name "VidaSalud_Filtrador" "sistema_vidasalud sin error.py"
+
+    - name: Fix Spec File
+      run: |
+        # Patch the spec file to remove potential icon='NONE' issue
+        # On Mac sed requires an empty string for extension if no backup is desired: -i ''
+        sed -i '' "s/icon='NONE'/icon=None/g" VidaSalud_Filtrador.spec
+        cat VidaSalud_Filtrador.spec  # Debug: show content
 
     - name: Build with PyInstaller
       run: |
-        pyinstaller --noconsole --onefile --windowed --icon=NONE --name "Vidasalud Filtrador" "sistema_vidasalud sin error.py"
+        pyinstaller --clean VidaSalud_Filtrador.spec
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Vidasalud-Mac-App
-        path: dist/*.app
+        name: VidaSalud-MacApp
+        path: dist/VidaSalud_Filtrador.app
