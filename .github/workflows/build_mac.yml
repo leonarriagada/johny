@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-13
+    runs-on: macos-15
 
     steps:
     - uses: actions/checkout@v3
@@ -28,7 +28,7 @@ jobs:
     - name: Create Spec File
       run: |
         # Generate the spec file first
-        pyi-makespec --noconsole --onefile --windowed --name "VidaSalud_Filtrador" "sistema_vidasalud sin error.py"
+        pyi-makespec --noconsole --onefile --windowed --name "VidaSalud_Filtrador" --target-arch universal2 "sistema_vidasalud sin error.py"
 
     - name: Fix Spec File
       run: |
@@ -38,6 +38,8 @@ jobs:
         cat VidaSalud_Filtrador.spec  # Debug: show content
 
     - name: Build with PyInstaller
+      env:
+        MACOSX_DEPLOYMENT_TARGET: "11.0"
       run: |
         pyinstaller --clean VidaSalud_Filtrador.spec
 
