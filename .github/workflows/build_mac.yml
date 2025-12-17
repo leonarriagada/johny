@@ -14,11 +14,18 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v4
+    - name: Set up Miniconda (x64)
+      uses: conda-incubator/setup-miniconda@v3
       with:
         python-version: "3.10"
         architecture: "x64"
+        auto-update-conda: true
+        activate-environment: build-env
+
+    - name: Verify Python Architecture
+      run: |
+        python -c "import platform; print(f'Running on: {platform.machine()}')"
+        # Should print x86_64
 
     - name: Install dependencies
       run: |
