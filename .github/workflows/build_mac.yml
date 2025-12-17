@@ -18,6 +18,7 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: "3.10"
+        architecture: "x64"
 
     - name: Install dependencies
       run: |
@@ -28,7 +29,8 @@ jobs:
     - name: Create Spec File
       run: |
         # Generate the spec file first
-        pyi-makespec --noconsole --onefile --windowed --name "VidaSalud_Filtrador" --target-arch universal2 "sistema_vidasalud sin error.py"
+        # Target specific x86_64 architecture for maximum compatibility (Rosetta 2)
+        pyi-makespec --noconsole --onefile --windowed --name "VidaSalud_Filtrador" --target-arch x86_64 "sistema_vidasalud sin error.py"
 
     - name: Fix Spec File
       run: |
@@ -39,7 +41,7 @@ jobs:
 
     - name: Build with PyInstaller
       env:
-        MACOSX_DEPLOYMENT_TARGET: "11.0"
+        MACOSX_DEPLOYMENT_TARGET: "10.15"
       run: |
         pyinstaller --clean VidaSalud_Filtrador.spec
 
